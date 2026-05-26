@@ -85,6 +85,12 @@ class BubbleDiagramUpdate(BaseModel):
     status: Optional[str] = None
 
 
+class BubbleRefineRequest(BaseModel):
+    refinement_text: str
+    current_nodes: List[Dict[str, Any]]
+    current_program: Dict[str, Any]
+
+
 class BubbleDiagramOut(BaseModel):
     id: UUID
     project_id: UUID
@@ -99,6 +105,10 @@ class BubbleDiagramOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class BubbleRefineOut(BubbleDiagramOut):
+    changes_summary: Optional[str] = None
 
 
 class UploadedFileOut(BaseModel):

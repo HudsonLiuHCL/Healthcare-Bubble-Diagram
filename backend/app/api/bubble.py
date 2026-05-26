@@ -6,8 +6,8 @@ from typing import List
 
 from ..database import get_db
 from ..models.models import Project, BubbleDiagram, SiteIntelligence, BubbleStatus, ProjectStatus
-from ..schemas.schemas import BubbleDiagramCreate, BubbleDiagramUpdate, BubbleDiagramOut
-from ..services.bubble_ai import generate_bubble_diagram
+from ..schemas.schemas import BubbleDiagramCreate, BubbleDiagramUpdate, BubbleDiagramOut, BubbleRefineRequest, BubbleRefineOut
+from ..services.bubble_ai import generate_bubble_diagram, refine_bubble_diagram
 
 router = APIRouter(prefix="/projects/{project_id}/bubble", tags=["bubble"])
 
@@ -89,3 +89,43 @@ def update_bubble(project_id: UUID, bubble_id: UUID, data: BubbleDiagramUpdate, 
     db.commit()
     db.refresh(bubble)
     return bubble
+
+
+@router.post("/{bubble_id}/refine", response_model=BubbleRefineOut)
+def refine(project_id: UUID, bubble_id: UUID, data: BubbleRefineRequest, db: Session = Depends(get_db)):
+    """Refine an existing bubble diagram using AI, preserving current node positions."""
+    bubble = db.query(BubbleDiagram).filter(
+        BubbleDiagram.id == bubble_id,
+        BubbleDiagram.project_id == project_id,
+    ).first()
+    if not bubble:
+        raise HTTPException(status_code=404, detail="Bubble diagram not found")
+
+    intel = db.query(SiteIntelligence).filter(SiteIntelligence.project_id == project_id).first()
+    site_context = None
+    if intel and intel.status == "completed":
+        site_context = {
+            "zoning": intel.zoning,
+            "building_restrictions": intel.building_restrictions,
+            "healthcare_constraints": intel.healthcare_constraints,
+        }
+
+    result = refine_bubble_diagram(
+        data.refinement_text,
+        data.current_program,
+        data.current_nodes,
+        site_context,
+    )
+
+    bubble.nodes = result["nodes"]
+    bubble.edges = result["edges"]
+    bubble.program_data = result["program"]
+    bubble.version = bubble.version + 1
+    bubble.updated_at = datetime.utcnow()
+
+    db.commit()
+    db.refresh(bubble)
+
+    out = BubbleRefineOut.model_validate(bubble)
+    out.changes_summary = result["changes_summary"]
+    return out

@@ -1,5 +1,4 @@
 import json
-import random
 from openai import OpenAI
 from ..config import settings
 
@@ -25,6 +24,53 @@ EDGE_STYLES = {
     "preferred": {"strokeWidth": 2, "stroke": "#3b82f6", "animated": False},
     "avoid": {"strokeWidth": 1, "stroke": "#9ca3af", "style": "dashed", "animated": False},
 }
+
+
+def _program_to_reactflow(program: dict, position_map: dict = None):
+    """Convert program data to ReactFlow nodes/edges, preserving positions for existing department IDs."""
+    departments = program.get("departments", [])
+    adjacencies = program.get("adjacencies", [])
+
+    if position_map is None:
+        position_map = {}
+
+    cols = max(3, int(len(departments) ** 0.5) + 1)
+    new_idx = 0
+
+    nodes = []
+    for dept in departments:
+        color = DEPT_COLORS.get(dept.get("type", "default"), DEPT_COLORS["default"])
+        area = dept.get("area_sqm", 500)
+        size = max(80, min(200, int(area ** 0.5 * 3.5)))
+
+        if dept["id"] in position_map:
+            pos = position_map[dept["id"]]
+        else:
+            row, col = divmod(new_idx, cols)
+            pos = {"x": col * 260, "y": row * 260}
+            new_idx += 1
+
+        nodes.append({
+            "id": dept["id"],
+            "type": "bubbleNode",
+            "position": pos,
+            "data": {**dept, "color": color, "size": size},
+        })
+
+    edges = []
+    for adj in adjacencies:
+        style = EDGE_STYLES.get(adj.get("strength", "preferred"), EDGE_STYLES["preferred"])
+        edges.append({
+            "id": f"e-{adj['from']}-{adj['to']}",
+            "source": adj["from"],
+            "target": adj["to"],
+            "type": "smoothstep",
+            "label": adj.get("reason", ""),
+            "style": style,
+            "data": {"strength": adj.get("strength", "preferred")},
+        })
+
+    return nodes, edges
 
 
 def generate_bubble_diagram(requirements_text: str, site_context=None) -> dict:
@@ -85,45 +131,61 @@ Include 8-15 departments typical for the described facility. Use realistic healt
     )
 
     program = json.loads(response.choices[0].message.content)
-    nodes, edges = program_to_reactflow(program)
+    nodes, edges = _program_to_reactflow(program)
     return {"program": program, "nodes": nodes, "edges": edges}
 
 
-def program_to_reactflow(program: dict):
-    departments = program.get("departments", [])
-    adjacencies = program.get("adjacencies", [])
+def refine_bubble_diagram(
+    refinement_text: str,
+    current_program: dict,
+    current_nodes: list,
+    site_context=None,
+) -> dict:
+    client = OpenAI(api_key=settings.openai_api_key)
 
-    # Layout in a grid with some spacing
-    cols = max(3, int(len(departments) ** 0.5) + 1)
-    nodes = []
-    for i, dept in enumerate(departments):
-        color = DEPT_COLORS.get(dept.get("type", "default"), DEPT_COLORS["default"])
-        # Scale bubble size by area: 80-200px diameter
-        area = dept.get("area_sqm", 500)
-        size = max(80, min(200, int(area ** 0.5 * 3.5)))
-        row, col = divmod(i, cols)
-        nodes.append({
-            "id": dept["id"],
-            "type": "bubbleNode",
-            "position": {"x": col * 260, "y": row * 260},
-            "data": {
-                **dept,
-                "color": color,
-                "size": size,
-            },
-        })
+    site_info = ""
+    if site_context:
+        site_info = f"\nSite Context:\n{json.dumps(site_context, indent=2)}"
 
-    edges = []
-    for adj in adjacencies:
-        style = EDGE_STYLES.get(adj.get("strength", "preferred"), EDGE_STYLES["preferred"])
-        edges.append({
-            "id": f"e-{adj['from']}-{adj['to']}",
-            "source": adj["from"],
-            "target": adj["to"],
-            "type": "smoothstep",
-            "label": adj.get("reason", ""),
-            "style": style,
-            "data": {"strength": adj.get("strength", "preferred")},
-        })
+    prompt = f"""You are an expert healthcare facility planner. An existing bubble diagram needs refinement.
 
-    return nodes, edges
+Current Facility Program:
+{json.dumps(current_program, indent=2)}
+
+Refinement Request:
+{refinement_text}
+{site_info}
+
+Return ONLY valid JSON with the same structure, modified per the request.
+Preserve existing department IDs for unchanged departments so layout positions are maintained.
+Add a "changes_summary" field (1-2 sentences describing what changed).
+
+Return this exact structure:
+{{
+  "departments": [...],
+  "adjacencies": [...],
+  "zones": [...],
+  "total_area_sqm": 0,
+  "total_beds": 0,
+  "summary": "Updated facility description",
+  "changes_summary": "Brief description of changes made"
+}}"""
+
+    response = client.chat.completions.create(
+        model=settings.openai_model,
+        messages=[{"role": "user", "content": prompt}],
+        response_format={"type": "json_object"},
+        temperature=0.4,
+    )
+
+    program = json.loads(response.choices[0].message.content)
+    changes_summary = program.pop("changes_summary", "Diagram updated")
+
+    position_map = {
+        n["id"]: n["position"]
+        for n in current_nodes
+        if "id" in n and "position" in n
+    }
+
+    nodes, edges = _program_to_reactflow(program, position_map)
+    return {"program": program, "nodes": nodes, "edges": edges, "changes_summary": changes_summary}

@@ -40,6 +40,12 @@ export const updateBubble = (projectId: string, bubbleId: string, data: {
   status?: string
 }) => api.patch(`/projects/${projectId}/bubble/${bubbleId}`, data).then(r => r.data)
 
+export const refineBubble = (projectId: string, bubbleId: string, data: {
+  refinement_text: string
+  current_nodes: object[]
+  current_program: object
+}) => api.post(`/projects/${projectId}/bubble/${bubbleId}/refine`, data).then(r => r.data)
+
 // ─── Files ───────────────────────────────────────────────────────────────────
 export const uploadFile = (projectId: string, file: File) => {
   const form = new FormData()
