@@ -11,6 +11,13 @@ export const updateProject = (id: string, data: Record<string, unknown>) =>
 export const deleteProject = (id: string) => api.delete(`/projects/${id}`).then(r => r.data)
 export const exportProject = (id: string) => api.get(`/projects/${id}/export`).then(r => r.data)
 
+// Publish a project to the Revit handoff store. Requires a Google ID token
+// (Bearer) — the backend verifies it and stamps the row with the user's identity.
+export const publishProject = (id: string, idToken: string) =>
+  api.post(`/projects/${id}/publish`, null, {
+    headers: { Authorization: `Bearer ${idToken}` },
+  }).then(r => r.data)
+
 // ─── Sites ───────────────────────────────────────────────────────────────────
 export const confirmSite = (projectId: string, data: {
   address?: string

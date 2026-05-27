@@ -4,13 +4,14 @@ import type { Node, Edge } from '@xyflow/react'
 import {
   Activity, ArrowLeft, RefreshCw,
   Layers, LayoutGrid, BarChart2, Loader, CheckCircle,
-  Database, FileDown,
+  Database, FileDown, Send,
 } from 'lucide-react'
 import {
   generateBubble, getBubbles, updateBubble,
-  getProject, getIntelligence, refineBubble,
+  getProject, getIntelligence, refineBubble, publishProject,
 } from '../api/client'
 import { useProjectStore } from '../store/projectStore'
+import { useAuthStore } from '../store/authStore'
 import RequirementsChat, { type ChatMessage } from '../components/RequirementsChat'
 import BubbleCanvas from '../components/BubbleCanvas'
 import SiteIntelligencePanel from '../components/SiteIntelligencePanel'
@@ -36,6 +37,8 @@ export default function BubbleDiagram() {
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
   const { currentProject, setCurrentProject } = useProjectStore()
+  const { idToken } = useAuthStore()
+  const [publishState, setPublishState] = useState<'idle' | 'publishing' | 'published' | 'error'>('idle')
 
   const [activeBubble, setActiveBubble] = useState<BubbleDiagramData | null>(null)
   const [generating, setGenerating] = useState(false)
@@ -240,6 +243,21 @@ export default function BubbleDiagram() {
   const summary = activeBubble?.program_data?.summary
   const isSample = activeBubble?.id?.startsWith('sample-')
 
+  // Publish this project to the Revit handoff store (needs a Google sign-in).
+  async function handlePublish() {
+    if (!projectId || !idToken) return
+    setPublishState('publishing')
+    try {
+      await publishProject(projectId, idToken)
+      setPublishState('published')
+      setTimeout(() => setPublishState('idle'), 3000)
+    } catch (err) {
+      console.error('Publish to Revit failed', err)
+      setPublishState('error')
+      setTimeout(() => setPublishState('idle'), 3000)
+    }
+  }
+
   return (
     <div className="h-screen flex flex-col bg-surface">
       {/* Header */}
@@ -317,6 +335,28 @@ export default function BubbleDiagram() {
               ) : (
                 <><Database size={14} /> Save &amp; Download PDF</>
               )}
+            </button>
+          )}
+
+          {/* Send to Revit (publish to the handoff store) */}
+          {activeBubble && (
+            <button
+              onClick={handlePublish}
+              disabled={!idToken || publishState === 'publishing'}
+              title={idToken ? 'Publish this project to Revit' : 'Sign in with Google (top-right) first'}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                publishState === 'published'
+                  ? 'border-emerald-500/30 text-emerald-400 bg-emerald-600/10'
+                  : publishState === 'error'
+                  ? 'border-red-500/30 text-red-400 bg-red-600/10'
+                  : 'border-border text-muted hover:text-white hover:border-accent/40'
+              }`}
+            >
+              {publishState === 'publishing' ? <Loader size={13} className="animate-spin" /> : <Send size={13} />}
+              {publishState === 'publishing' ? 'Sending…'
+                : publishState === 'published' ? 'Sent to Revit ✓'
+                : publishState === 'error' ? 'Failed'
+                : 'Send to Revit'}
             </button>
           )}
         </div>

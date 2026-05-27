@@ -4,10 +4,13 @@ import SiteSelection from './pages/SiteSelection'
 import StartingPath from './pages/StartingPath'
 import BubbleDiagram from './pages/BubbleDiagram'
 import UploadDesign from './pages/UploadDesign'
+import GoogleAuthButton from './components/GoogleAuthButton'
 
 export default function App() {
   return (
     <BrowserRouter>
+      {/* Global sign-in control (top-right on every page). */}
+      <GoogleAuthButton />
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/project/:projectId/site" element={<SiteSelection />} />

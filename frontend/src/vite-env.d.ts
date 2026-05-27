@@ -1,5 +1,10 @@
 /// <reference types="vite/client" />
 
+interface ImportMetaEnv {
+  readonly VITE_GOOGLE_CLIENT_ID?: string
+  readonly VITE_MAPBOX_TOKEN?: string
+}
+
 declare module '@mapbox/mapbox-gl-geocoder' {
   import type { IControl } from 'mapbox-gl'
   interface GeocoderOptions {

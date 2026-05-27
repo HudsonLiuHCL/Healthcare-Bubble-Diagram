@@ -11,6 +11,7 @@
   "dependencies": {
     "@mapbox/mapbox-gl-draw": "^1.4.3",
     "@mapbox/mapbox-gl-geocoder": "^5.0.2",
+    "@react-oauth/google": "^0.13.5",
     "@xyflow/react": "^12.0.0",
     "axios": "^1.7.2",
     "html-to-image": "^1.11.13",
