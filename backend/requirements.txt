@@ -11,3 +11,4 @@ pydantic-settings==2.3.0
 shapely==2.0.4
 httpx==0.27.0
 aiofiles==23.2.1
+google-auth==2.53.0       # verify Google ID tokens on /publish (Sign in with Google)

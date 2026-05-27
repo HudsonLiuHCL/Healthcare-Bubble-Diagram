@@ -80,12 +80,14 @@ def delete_project(project_id: UUID, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
-@router.get("/{project_id}/export")
-def export_project(project_id: UUID, db: Session = Depends(get_db)):
-    """Export full project data as JSON for Revit integration."""
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+def build_export(db: Session, project: Project) -> dict:
+    """Assemble the full Revit-handoff document for a project: site, site
+    intelligence, the latest approved bubble diagram, and uploaded-file metadata.
+
+    Shared by the /export endpoint and the /publish handoff writer so both emit
+    exactly the same shape.
+    """
+    project_id = project.id
 
     site = db.query(Site).filter(Site.project_id == project_id).first()
     intel = db.query(SiteIntelligence).filter(SiteIntelligence.project_id == project_id).first()
@@ -153,4 +155,13 @@ def export_project(project_id: UUID, db: Session = Depends(get_db)):
             "parsed_data": f.parsed_data,
         })
 
-    return JSONResponse(content=export)
+    return export
+
+
+@router.get("/{project_id}/export")
+def export_project(project_id: UUID, db: Session = Depends(get_db)):
+    """Export full project data as JSON for Revit integration."""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return JSONResponse(content=build_export(db, project))
