@@ -2,7 +2,9 @@ import { GoogleLogin, googleLogout } from '@react-oauth/google'
 import { useAuthStore } from '../store/authStore'
 
 /**
- * Fixed top-right "Sign in with Google" control, mounted globally in App.
+ * Fixed bottom-left "Sign in with Google" control, mounted globally in App.
+ * (Bottom-left so it never overlaps the top-right page actions, e.g. Home's
+ * "New Project" button.)
  *
  * The `credential` GoogleLogin hands back IS the ID token (a JWT) our backends
  * verify; we stash it in the auth store for the "Send to Revit" publish call and
@@ -16,7 +18,7 @@ export default function GoogleAuthButton() {
   const { email, setAuth, clear } = useAuthStore()
 
   return (
-    <div style={{ position: 'fixed', top: 12, right: 12, zIndex: 1000 }}>
+    <div style={{ position: 'fixed', bottom: 12, left: 12, zIndex: 1000 }}>
       {email ? (
         <div
           style={{

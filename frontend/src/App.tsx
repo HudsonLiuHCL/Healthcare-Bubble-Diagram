@@ -9,7 +9,7 @@ import GoogleAuthButton from './components/GoogleAuthButton'
 export default function App() {
   return (
     <BrowserRouter>
-      {/* Global sign-in control (top-right on every page). */}
+      {/* Global sign-in control (bottom-left on every page). */}
       <GoogleAuthButton />
       <Routes>
         <Route path="/" element={<Home />} />
