@@ -53,6 +53,13 @@ export const refineBubble = (projectId: string, bubbleId: string, data: {
   current_program: object
 }) => api.post(`/projects/${projectId}/bubble/${bubbleId}/refine`, data).then(r => r.data)
 
+// ─── Collaborate ─────────────────────────────────────────────────────────────
+export const collaborateChat = (data: {
+  role: string
+  message: string
+  history: { role: string; text: string }[]
+}) => api.post('/collaborate/chat', data).then(r => r.data as { response: string })
+
 // ─── Files ───────────────────────────────────────────────────────────────────
 export const uploadFile = (projectId: string, file: File) => {
   const form = new FormData()

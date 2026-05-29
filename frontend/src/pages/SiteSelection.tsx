@@ -1,20 +1,34 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Activity, ArrowLeft, Loader } from 'lucide-react'
-import { confirmSite, getProject } from '../api/client'
+import { confirmSite, getProject, getIntelligence } from '../api/client'
 import { useProjectStore } from '../store/projectStore'
 import MapSelector from '../components/MapSelector'
+import StepChain from '../components/StepChain'
+import SiteIntelligencePanel from '../components/SiteIntelligencePanel'
 
 export default function SiteSelection() {
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
   const { currentProject, setCurrentProject } = useProjectStore()
   const [isConfirming, setIsConfirming] = useState(false)
+  const [showIntel, setShowIntel] = useState(false)
+  const [intelStatus, setIntelStatus] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!currentProject && projectId) {
-      getProject(projectId).then(setCurrentProject).catch(console.error)
+    if (!projectId) return
+    if (!currentProject) getProject(projectId).then(setCurrentProject).catch(console.error)
+    let timer: ReturnType<typeof setTimeout>
+    const poll = async () => {
+      try {
+        const intel = await getIntelligence(projectId)
+        setIntelStatus(intel.status)
+        if (intel.status !== 'completed' && intel.status !== 'failed')
+          timer = setTimeout(poll, 4000)
+      } catch { timer = setTimeout(poll, 5000) }
     }
+    poll()
+    return () => clearTimeout(timer)
   }, [projectId])
 
   const handleConfirm = async (data: {
@@ -34,7 +48,7 @@ export default function SiteSelection() {
         parcel_geojson: data.parcel_geojson ?? undefined,
         lot_area_sqm: data.lot_area_sqm,
       })
-      navigate(`/project/${projectId}/start`)
+      navigate(`/project/${projectId}/collaborate`)
     } catch (e) {
       console.error(e)
       alert('Failed to save site. Is the backend running?')
@@ -54,22 +68,8 @@ export default function SiteSelection() {
           <Activity size={16} className="text-accent" />
           <span className="text-sm text-muted">{currentProject?.name || 'Project'}</span>
         </div>
-        <div className="flex items-center gap-2 ml-auto">
-          <div className="flex items-center gap-1.5">
-            {['Site', 'Path', 'Program'].map((step, i) => (
-              <div key={step} className="flex items-center gap-1.5">
-                <div className={`flex items-center gap-1.5 ${i === 0 ? 'text-accent' : 'text-muted'}`}>
-                  <div className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-medium border ${i === 0 ? 'border-accent bg-accent text-white' : 'border-border'}`}>
-                    {i + 1}
-                  </div>
-                  <span className="text-xs">{step}</span>
-                </div>
-                {i < 2 && <div className="w-6 h-px bg-border" />}
-              </div>
-            ))}
-          </div>
-        </div>
       </header>
+      <StepChain current="site" projectId={projectId} intelStatus={intelStatus} onSiteAnalysisClick={() => setShowIntel(true)} />
 
       {/* Map */}
       <div className="flex-1 relative">
@@ -86,6 +86,10 @@ export default function SiteSelection() {
         )}
         <MapSelector onSiteConfirmed={handleConfirm} isConfirming={isConfirming} />
       </div>
+
+      {projectId && (
+        <SiteIntelligencePanel isOpen={showIntel} onClose={() => setShowIntel(false)} projectId={projectId} />
+      )}
     </div>
   )
 }

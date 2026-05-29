@@ -6,7 +6,7 @@ from sqlalchemy import text
 from .database import engine, Base
 from .models import models  # noqa: ensure models are registered
 from . import published_model  # noqa: ensure published_projects table is registered
-from .api import projects, sites, intelligence, bubble, files, publish
+from .api import projects, sites, intelligence, bubble, files, publish, collaborate
 from .config import settings
 
 Base.metadata.create_all(bind=engine)
@@ -49,6 +49,7 @@ app.include_router(intelligence.router)
 app.include_router(bubble.router)
 app.include_router(files.router)
 app.include_router(publish.router)
+app.include_router(collaborate.router)
 
 
 @app.get("/health")

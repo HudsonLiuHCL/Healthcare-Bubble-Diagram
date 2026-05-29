@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Activity, ArrowLeft, Upload, GitBranch, CheckCircle, Loader, ChevronRight, BarChart2 } from 'lucide-react'
+import { Activity, ArrowLeft, Upload, GitBranch, CheckCircle, Loader, ChevronRight, BarChart2, Users } from 'lucide-react'
 import { updateProject, getProject, getIntelligence } from '../api/client'
 import { useProjectStore } from '../store/projectStore'
 import SiteIntelligencePanel from '../components/SiteIntelligencePanel'
@@ -126,6 +126,26 @@ export default function StartingPath() {
 
         <h1 className="text-3xl font-bold text-white mb-2">How would you like to start?</h1>
         <p className="text-muted mb-10">Choose a workflow based on your project type. You can always switch later.</p>
+
+        {/* Collaboration CTA */}
+        <div
+          onClick={() => navigate(`/project/${projectId}/collaborate`)}
+          className="mb-8 cursor-pointer flex items-center gap-4 bg-panel border border-accent/30 hover:border-accent rounded-2xl px-6 py-5 transition-all group"
+        >
+          <div className="w-12 h-12 rounded-xl bg-accent/20 flex items-center justify-center flex-none">
+            <Users size={22} className="text-accent" />
+          </div>
+          <div className="flex-1">
+            <div className="flex items-center gap-2 mb-0.5">
+              <h3 className="text-base font-semibold text-white group-hover:text-accent transition-colors">Start Collaboration Session</h3>
+              <span className="text-xs px-2 py-0.5 rounded-full bg-accent/15 text-accent border border-accent/25 font-medium">New</span>
+            </div>
+            <p className="text-sm text-muted">Doctor + Architect real-time collaboration — AI generates all 7 diagram types from your conversation</p>
+          </div>
+          <ChevronRight size={18} className="text-muted group-hover:text-accent group-hover:translate-x-1 transition-all flex-none" />
+        </div>
+
+        <p className="text-sm text-muted mb-6">Or start with a single workflow:</p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Option A: Upload */}
