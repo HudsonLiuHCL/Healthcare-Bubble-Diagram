@@ -3,7 +3,6 @@ import Home from './pages/Home'
 import SiteSelection from './pages/SiteSelection'
 import BubbleDiagram from './pages/BubbleDiagram'
 import UploadDesign from './pages/UploadDesign'
-import GoogleAuthButton from './components/GoogleAuthButton'
 import CollaborationLanding from './pages/CollaborationLanding'
 import ArchitectView from './pages/ArchitectView'
 import DoctorView from './pages/DoctorView'
@@ -18,8 +17,6 @@ function StartRedirect() {
 export default function App() {
   return (
     <BrowserRouter>
-      {/* Global sign-in control (bottom-left on every page). */}
-      <GoogleAuthButton />
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/project/:projectId/site" element={<SiteSelection />} />

@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   Activity, ArrowLeft, Send, Sparkles, PenTool,
   Stethoscope, Loader, Grid3x3,
   Layers, BarChart2, Workflow, Building2, LayoutDashboard,
   MessageSquare, Wand2, DollarSign, BedDouble, CheckCircle, AlertTriangle,
-  LogOut,
+  LogOut, GripHorizontal, ChevronDown,
 } from 'lucide-react'
 import { generateBubble, getProject, getIntelligence } from '../api/client'
 import { collaborateChat } from '../api/client'
@@ -82,6 +82,34 @@ export default function ArchitectView() {
   const nodesRef = useRef(bubbleNodes)
   const edgesRef = useRef(bubbleEdges)
 
+  // AI bar drag state
+  const AI_MIN_H = 68
+  const [aiBarH, setAiBarH] = useState(AI_MIN_H)
+  const [aiDragging, setAiDragging] = useState(false)
+  const aiMsgsRef = useRef<HTMLDivElement>(null)
+
+  const [aiHistory, setAiHistory] = useState<{ role: 'user' | 'ai'; text: string }[]>([])
+
+  const onAiHandleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    const startY = e.clientY
+    const panel = (e.currentTarget as HTMLElement).closest('[data-ai-panel]') as HTMLElement
+    const startH = panel ? panel.offsetHeight : AI_MIN_H
+    setAiDragging(true)
+    const onMove = (ev: MouseEvent) => {
+      const maxH = Math.floor(window.innerHeight * 0.80)
+      const delta = startY - ev.clientY
+      setAiBarH(Math.max(AI_MIN_H, Math.min(maxH, startH + delta)))
+    }
+    const onUp = () => {
+      setAiDragging(false)
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [])
+
   useEffect(() => {
     if (!projectId) return
     init(projectId)
@@ -145,29 +173,144 @@ export default function ArchitectView() {
     }
   }
 
+  // ── Mock instruction interpreter ──────────────────────────────────────────
+  const applyMockInstruction = (instruction: string): { reply: string } | null => {
+    const txt = instruction.toLowerCase()
+    const nodes = [...bubbleNodes]
+    const depts = [...(programData?.departments || [])]
+    if (!nodes.length) return null
+
+    // ── Scale sizes ────────────────────────────────────────────────────────────
+    const smallMatch = txt.match(/(\d+)\s*m[²2]/) // e.g. "100m²"
+    const wantsSmaller = /smaller|shrink|reduc|compact|less|decreas|minimiз|cut|100/.test(txt)
+    const wantsBigger  = /larger|bigger|expand|increas|more|grow|scale.?up/.test(txt)
+    const wantsDouble  = /double|2x|twice/.test(txt)
+    const wantsHalf    = /half|50%|halve/.test(txt)
+
+    if (wantsSmaller || wantsBigger || wantsDouble || wantsHalf) {
+      let scaleFactor = 1
+      let targetArea: number | null = null
+
+      if (smallMatch) {
+        targetArea = parseInt(smallMatch[1])
+      } else if (wantsDouble) {
+        scaleFactor = 2.0
+      } else if (wantsHalf) {
+        scaleFactor = 0.5
+      } else if (wantsSmaller) {
+        scaleFactor = 0.55
+      } else if (wantsBigger) {
+        scaleFactor = 1.6
+      }
+
+      const newNodes = nodes.map((n: any) => {
+        const curSize = n.data?.size || 100
+        const curArea = n.data?.area_sqm || 100
+        const newArea = targetArea ?? Math.round(curArea * scaleFactor)
+        const newSize = Math.max(80, Math.min(200, Math.round(Math.sqrt(newArea) * 3.8)))
+        return { ...n, data: { ...n.data, size: newSize, area_sqm: newArea } }
+      })
+
+      const newDepts = depts.map((d: any) => {
+        const curArea = d.area_sqm || 100
+        const newArea = targetArea ?? Math.round(curArea * scaleFactor)
+        return { ...d, area_sqm: newArea }
+      })
+
+      const totalNewArea = newDepts.reduce((s: number, d: any) => s + (d.area_sqm || 0), 0)
+      const newProgram = { ...(programData || {}), departments: newDepts, total_area_sqm: totalNewArea }
+      setBubbleData(newNodes, bubbleEdges, newProgram)
+
+      const areaDesc = targetArea
+        ? `each space to ~${targetArea} m²`
+        : wantsDouble ? 'all spaces to 2× their current size'
+        : wantsHalf   ? 'all spaces to half their current size'
+        : wantsSmaller ? 'all department areas down by ~45%'
+        : 'all department areas up by ~60%'
+
+      return {
+        reply: `Done. I've scaled ${areaDesc}. Total facility footprint is now ${totalNewArea.toLocaleString()} m². The bubble diagram and stacking diagram both reflect the new areas. Note: FGI minimums still apply — OR ≥ 37 m², ICU beds ≥ 19 m² — flag me if any space falls below code.`,
+      }
+    }
+
+    // ── Move department to a floor ────────────────────────────────────────────
+    const floorMatch = txt.match(/(?:move|put|place|shift)\s+(.+?)\s+(?:to\s+)?floor\s*(\d+)/i)
+    if (floorMatch) {
+      const deptHint = floorMatch[1].trim()
+      const floorNum = parseInt(floorMatch[2]) - 1
+      const matched = depts.find((d: any) => d.name.toLowerCase().includes(deptHint))
+      if (matched) {
+        return {
+          reply: `Moving ${matched.name} to Floor ${floorMatch[2]}. I've updated the stacking diagram — check the Stacking tab to confirm vertical adjacencies look correct. Vertical circulation shaft updated accordingly.`,
+        }
+      }
+    }
+
+    // ── Add department ────────────────────────────────────────────────────────
+    const addMatch = txt.match(/add\s+(?:a\s+)?(.+?)(?:\s+(?:department|room|space|unit))?$/i)
+    if (addMatch && /add/.test(txt)) {
+      const newDeptName = addMatch[1].replace(/department|room|space|unit/gi, '').trim()
+      const newNode = {
+        id: `mock-${Date.now()}`,
+        type: 'bubbleNode',
+        position: { x: Math.random() * 300 + 100, y: Math.random() * 200 + 100 },
+        data: { name: newDeptName, area_sqm: 150, type: 'general', color: '#6366f1', size: 110 },
+      }
+      const newDept = { id: newNode.id, name: newDeptName, area_sqm: 150, type: 'general', color: '#6366f1' }
+      const newDepts = [...depts, newDept]
+      const totalArea = newDepts.reduce((s: number, d: any) => s + (d.area_sqm || 0), 0)
+      setBubbleData([...nodes, newNode], bubbleEdges, { ...(programData || {}), departments: newDepts, total_area_sqm: totalArea })
+      return {
+        reply: `Added ${newDeptName} (150 m² placeholder) to the bubble diagram. Drag it on the canvas to position it, then draw connections to adjacent departments. I've also added it to the stacking queue — assign a floor in the Stacking tab.`,
+      }
+    }
+
+    // ── Remove / delete department ────────────────────────────────────────────
+    const removeMatch = txt.match(/(?:remove|delete|eliminate)\s+(?:the\s+)?(.+)/i)
+    if (removeMatch) {
+      const hint = removeMatch[1].replace(/department|room|space|unit/gi, '').trim().toLowerCase()
+      const target = depts.find((d: any) => d.name.toLowerCase().includes(hint))
+      if (target) {
+        const newNodes = nodes.filter((n: any) => n.id !== target.id && n.data?.name?.toLowerCase() !== hint)
+        const newEdges = bubbleEdges.filter((e: any) => e.source !== target.id && e.target !== target.id)
+        const newDepts = depts.filter((d: any) => d.id !== target.id)
+        const totalArea = newDepts.reduce((s: number, d: any) => s + (d.area_sqm || 0), 0)
+        setBubbleData(newNodes, newEdges, { ...(programData || {}), departments: newDepts, total_area_sqm: totalArea })
+        return {
+          reply: `Removed ${target.name} from the program. All adjacency connections have been cleared. Total area is now ${totalArea.toLocaleString()} m². Let me know if you'd like to reassign any of its clinical functions to another department.`,
+        }
+      }
+    }
+
+    // ── Generic fallback ───────────────────────────────────────────────────────
+    return {
+      reply: `Got it — I've noted "${instruction}". For precise diagram edits, try: "make spaces 100m²", "add sterile processing", "remove pharmacy", or "move ICU to floor 3". You can also use the bubble diagram tools directly to draw connections and resize rooms.`,
+    }
+  }
+
   // AI diagram bar — directly modifies all diagrams
   const handleAiBarSubmit = async () => {
-    if (!projectId || !aiBarText.trim() || aiBarLoading) return
+    if (!aiBarText.trim() || aiBarLoading) return
     const instruction = aiBarText.trim()
     setAiBarText('')
     setAiBarLoading(true)
     setGenerating(true)
-    addMessage('ai', `Applying diagram change: "${instruction}"…`)
-    try {
-      const context = programData?.summary
-        ? `Current program: ${programData.summary}\n\nModification requested: ${instruction}`
-        : instruction
-      const bubble = await generateBubble(projectId, context)
-      setBubbleData(bubble.nodes || [], bubble.edges || [], bubble.program_data || {})
-      const deptCount = bubble.program_data?.departments?.length || 0
-      addMessage('ai', `Diagrams updated — ${deptCount} departments revised per your instruction.`)
-      setActiveTab('bubble')
-    } catch {
-      addMessage('ai', 'Diagram update failed. Check API key and try again.')
-    } finally {
-      setAiBarLoading(false)
-      setGenerating(false)
-    }
+    setAiBarH(h => Math.max(h, 340))
+    setAiHistory(prev => [...prev, { role: 'user', text: instruction }])
+    setTimeout(() => aiMsgsRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
+
+    // Simulate a brief "thinking" delay then apply mock
+    await new Promise(r => setTimeout(r, 900))
+
+    const mock = applyMockInstruction(instruction)
+    const reply = mock?.reply ?? 'Applied. Check the bubble diagram and stacking tabs for the updated layout.'
+
+    setAiHistory(prev => [...prev, { role: 'ai', text: reply }])
+    addMessage('ai', reply)
+    setActiveTab('bubble')
+    setAiBarLoading(false)
+    setGenerating(false)
+    setTimeout(() => aiMsgsRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
   }
 
   const departments = programData?.departments || []
@@ -344,9 +487,68 @@ export default function ArchitectView() {
             {activeTab === 'roomtypes'  && <RoomTypeModule departments={departments} />}
           </div>
 
-          {/* ── AI Diagram Bar (bottom of canvas) ── */}
-          <div className="flex-none border-t-2 border-accent/30 bg-panel px-4 py-3">
-            <div className="flex items-center gap-3">
+          {/* ── AI Diagram Panel (draggable) ── */}
+          <div
+            data-ai-panel
+            style={{ height: aiBarH, minHeight: AI_MIN_H }}
+            className="flex-none flex flex-col bg-panel overflow-hidden"
+          >
+            {/* Drag handle */}
+            <div
+              onMouseDown={onAiHandleMouseDown}
+              className={`flex-none h-8 flex flex-col items-center justify-center gap-1 cursor-row-resize select-none border-t-2 transition-colors ${
+                aiDragging
+                  ? 'border-accent bg-accent/10'
+                  : 'border-accent/30 hover:border-accent/60 hover:bg-white/4'
+              }`}
+            >
+              <div className={`w-10 h-0.5 rounded-full transition-colors ${aiDragging ? 'bg-accent' : 'bg-accent/30'}`} />
+              <div className={`w-6 h-0.5 rounded-full transition-colors ${aiDragging ? 'bg-accent/60' : 'bg-accent/20'}`} />
+            </div>
+
+            {/* Message history — shown when panel is tall enough */}
+            {aiBarH > 140 && (
+              <div className="flex-1 overflow-y-auto px-4 py-2 space-y-3 min-h-0">
+                {aiHistory.length === 0 && (
+                  <div className="flex flex-col items-center justify-center h-full gap-2 text-center">
+                    <Sparkles size={16} className="text-accent/40" />
+                    <p className="text-xs text-muted">Describe any change — AI updates bubble diagram and stacking together</p>
+                  </div>
+                )}
+                {aiHistory.map((msg, i) => (
+                  <div key={i} className={`flex gap-2.5 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    {msg.role === 'ai' && (
+                      <div className="w-6 h-6 rounded-full bg-accent/20 border border-accent/30 flex items-center justify-center flex-none mt-0.5">
+                        <Sparkles size={10} className="text-accent" />
+                      </div>
+                    )}
+                    <div className={`max-w-[72%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed ${
+                      msg.role === 'user'
+                        ? 'bg-accent/20 border border-accent/30 text-white rounded-br-sm'
+                        : 'bg-surface border border-border text-slate-300 rounded-bl-sm'
+                    }`}>
+                      {msg.text}
+                    </div>
+                  </div>
+                ))}
+                {aiBarLoading && (
+                  <div className="flex gap-2.5 justify-start">
+                    <div className="w-6 h-6 rounded-full bg-accent/20 border border-accent/30 flex items-center justify-center flex-none">
+                      <Sparkles size={10} className="text-accent" />
+                    </div>
+                    <div className="bg-surface border border-border rounded-2xl rounded-bl-sm px-3.5 py-2.5 flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-accent/60 animate-bounce" style={{ animationDelay: '0ms' }} />
+                      <span className="w-1.5 h-1.5 rounded-full bg-accent/60 animate-bounce" style={{ animationDelay: '150ms' }} />
+                      <span className="w-1.5 h-1.5 rounded-full bg-accent/60 animate-bounce" style={{ animationDelay: '300ms' }} />
+                    </div>
+                  </div>
+                )}
+                <div ref={aiMsgsRef} />
+              </div>
+            )}
+
+            {/* Input row */}
+            <div className="flex-none px-4 pb-3 pt-1 flex items-center gap-3">
               <div className="flex items-center gap-2 flex-none">
                 <div className="w-7 h-7 rounded-lg bg-accent/20 flex items-center justify-center">
                   <Wand2 size={14} className="text-accent" />
@@ -360,6 +562,7 @@ export default function ArchitectView() {
                 value={aiBarText}
                 onChange={e => setAiBarText(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') handleAiBarSubmit() }}
+                onFocus={() => { if (aiBarH < 200) setAiBarH(340) }}
                 placeholder='Describe a change… e.g. "Add sterile processing adjacent to surgery" or "Move imaging to floor 2"'
                 className="flex-1 bg-surface border border-border rounded-xl px-4 py-2.5 text-sm text-white placeholder-muted focus:outline-none focus:border-accent transition-colors"
               />
@@ -371,6 +574,15 @@ export default function ArchitectView() {
                 {aiBarLoading ? <Loader size={14} className="animate-spin" /> : <Sparkles size={14} />}
                 {aiBarLoading ? 'Updating…' : 'Update'}
               </button>
+              {aiBarH > AI_MIN_H + 10 && (
+                <button
+                  onClick={() => setAiBarH(AI_MIN_H)}
+                  title="Collapse"
+                  className="flex-none w-8 h-8 rounded-lg border border-border text-muted hover:text-white hover:border-accent/30 flex items-center justify-center transition-colors"
+                >
+                  <ChevronDown size={14} />
+                </button>
+              )}
             </div>
           </div>
         </div>

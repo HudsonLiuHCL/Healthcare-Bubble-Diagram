@@ -10,10 +10,10 @@ echo "==> Waiting for DB to be ready..."
 until docker compose exec db pg_isready -U healtharch 2>/dev/null; do sleep 1; done
 echo "    DB ready."
 
-echo "==> Starting backend (FastAPI on :8000)..."
+echo "==> Starting backend (FastAPI on :7000)..."
 cd "$ROOT/backend"
 source venv/bin/activate
-uvicorn app.main:app --reload --port 8000 &
+uvicorn app.main:app --reload --port 7000 &
 BACKEND_PID=$!
 
 echo "==> Starting frontend (Vite on :5173)..."
@@ -25,8 +25,8 @@ echo ""
 echo "======================================"
 echo "  HealthArch is running!"
 echo "  Frontend:  http://localhost:5173"
-echo "  Backend:   http://localhost:8000"
-echo "  API docs:  http://localhost:8000/docs"
+echo "  Backend:   http://localhost:7000"
+echo "  API docs:  http://localhost:7000/docs"
 echo "======================================"
 echo ""
 echo "Press Ctrl+C to stop all services."

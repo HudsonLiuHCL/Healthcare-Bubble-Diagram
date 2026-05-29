@@ -11,6 +11,7 @@ import { getProject, getIntelligence } from '../api/client'
 import { collaborateChat } from '../api/client'
 import StepChain from '../components/StepChain'
 import SiteIntelligencePanel from '../components/SiteIntelligencePanel'
+import GoogleAuthButton from '../components/GoogleAuthButton'
 import { useProjectStore } from '../store/projectStore'
 import { useCollabStore, type MessageRole, type DiagramComment } from '../store/collabStore'
 import AdjacencyMatrix from '../components/diagrams/AdjacencyMatrix'
@@ -207,6 +208,7 @@ export default function DoctorView() {
           >
             <LogOut size={12} /> End Session
           </button>
+          <GoogleAuthButton />
         </div>
       </header>
       <StepChain current="collab" projectId={projectId} intelStatus={intelStatus} onSiteAnalysisClick={() => setShowIntel(true)} />

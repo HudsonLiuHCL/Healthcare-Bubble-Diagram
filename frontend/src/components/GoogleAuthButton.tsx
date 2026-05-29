@@ -1,60 +1,76 @@
+import { useState } from 'react'
 import { GoogleLogin, googleLogout } from '@react-oauth/google'
 import { useAuthStore } from '../store/authStore'
 
 /**
- * Fixed bottom-left "Sign in with Google" control, mounted globally in App.
- * (Bottom-left so it never overlaps the top-right page actions, e.g. Home's
- * "New Project" button.)
- *
- * The `credential` GoogleLogin hands back IS the ID token (a JWT) our backends
- * verify; we stash it in the auth store for the "Send to Revit" publish call and
- * decode the email locally just for the signed-in label.
- *
- * Needs VITE_GOOGLE_CLIENT_ID (a Web-application OAuth client id) — see
- * HealthcareArchitecture/docs/bubble-diagram-handoff.md. Until that's set the
- * Google button renders but won't complete sign-in.
+ * Inline header widget — drop into any page's top-right controls.
+ * Signed in: circular avatar with the first initial; click to reveal sign-out.
+ * Signed out: compact Google one-tap button.
  */
 export default function GoogleAuthButton() {
   const { email, setAuth, clear } = useAuthStore()
+  const [open, setOpen] = useState(false)
 
-  return (
-    <div style={{ position: 'fixed', bottom: 12, left: 12, zIndex: 1000 }}>
-      {email ? (
-        <div
+  if (email) {
+    const initial = email[0].toUpperCase()
+    return (
+      <div style={{ position: 'relative' }}>
+        <button
+          onClick={() => setOpen(o => !o)}
+          title={email}
           style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            background: 'rgba(17,24,39,0.9)', color: '#e5e7eb',
-            border: '1px solid #374151', borderRadius: 8,
-            padding: '6px 10px', fontSize: 12,
+            width: 30, height: 30, borderRadius: '50%',
+            background: 'linear-gradient(135deg,#6366f1,#8b5cf6)',
+            border: '1.5px solid rgba(139,92,246,0.5)',
+            color: '#fff', fontSize: 12, fontWeight: 700,
+            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}
         >
-          <span>Signed in as <strong>{email}</strong></span>
-          <button
-            onClick={() => { googleLogout(); clear() }}
+          {initial}
+        </button>
+
+        {open && (
+          <div
             style={{
-              background: 'transparent', color: '#9ca3af',
-              border: '1px solid #374151', borderRadius: 6,
-              padding: '2px 8px', cursor: 'pointer', fontSize: 12,
+              position: 'absolute', top: 36, right: 0, zIndex: 2000,
+              background: '#111827', border: '1px solid #374151', borderRadius: 8,
+              padding: '8px 0', minWidth: 180, boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
             }}
           >
-            Sign out
-          </button>
-        </div>
-      ) : (
-        <GoogleLogin
-          onSuccess={(cr) => {
-            const token = cr.credential
-            if (token) setAuth(token, decodeEmail(token))
-          }}
-          onError={() => console.error('Google sign-in failed')}
-        />
-      )}
-    </div>
+            <div style={{ padding: '4px 12px 8px', borderBottom: '1px solid #374151' }}>
+              <div style={{ fontSize: 11, color: '#9ca3af' }}>Signed in as</div>
+              <div style={{ fontSize: 12, color: '#e5e7eb', fontWeight: 600, marginTop: 2 }}>{email}</div>
+            </div>
+            <button
+              onClick={() => { googleLogout(); clear(); setOpen(false) }}
+              style={{
+                width: '100%', padding: '8px 12px', textAlign: 'left',
+                background: 'transparent', border: 'none',
+                color: '#f87171', fontSize: 12, cursor: 'pointer',
+              }}
+            >
+              Sign out
+            </button>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <GoogleLogin
+      onSuccess={(cr) => {
+        const token = cr.credential
+        if (token) setAuth(token, decodeEmail(token))
+      }}
+      onError={() => console.error('Google sign-in failed')}
+      size="small"
+      shape="circle"
+      type="icon"
+    />
   )
 }
 
-/** Decode the `email` claim from a Google ID token (JWT) without verifying it —
- *  verification happens server-side; this is display-only. */
 function decodeEmail(jwt: string): string | null {
   try {
     const payload = jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')

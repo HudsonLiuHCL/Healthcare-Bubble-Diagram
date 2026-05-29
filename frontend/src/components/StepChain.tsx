@@ -40,7 +40,7 @@ export default function StepChain({ current, projectId, intelStatus, onSiteAnaly
   }
 
   return (
-    <div className="flex-none flex items-center justify-center gap-0 bg-panel border-b border-border px-6 py-2">
+    <div className="flex-none flex items-center justify-start gap-0 bg-panel border-b border-border px-6 py-2">
       {STEPS.map((step, i) => {
         const Icon = step.icon
         const done   = i < currentIdx || (step.id === 'analyze' && isAnalyzed && currentIdx >= 1)

@@ -17,7 +17,7 @@ Three rules, because they're easy to get wrong:
 | Service  | Port | Hard rule |
 |----------|------|-----------|
 | Frontend | **5173** | **Must be exactly 5173.** This origin (`http://localhost:5173`) is the registered Google OAuth *Authorized JavaScript origin* **and** the backend's CORS allow-list. If Vite falls back to another port (e.g. 5174 because 5173 was busy), Google sign-in fails with `Error 401: invalid_client` / "no registered origin". |
-| Backend  | 7000 | Any free port is fine, **but it must match** the proxy target in `frontend/vite.config.ts` (`server.proxy['/api'].target`). They are currently both `7000`. Change one → change the other. |
+| Backend  | 7000 | Any free port is fine, **but it must match** the proxy target in `frontend/vite.config.ts` (`server.proxy['/api'].target`). They are currently both `7000`. Change one → change the other. **macOS:** the proxy target must be `http://127.0.0.1:7000` (not `localhost`) — macOS resolves `localhost` to IPv6 `::1`, which hits AirPlay/AirTunes instead of the backend. |
 | Postgres | 5433 | Mapped in `docker-compose.yml` as `5433:5432`. Port 5432 is taken by a host-installed PostgreSQL on the dev machine; the Docker DB uses 5433 to avoid a clash. `.env`'s `DATABASE_URL` points here. |
 
 If you ever change the frontend port, you must also add the new origin to the
@@ -102,6 +102,9 @@ docker compose up -d
 
 # Terminal 2 — backend (must match the Vite proxy port)
 cd backend
+# macOS/Linux:
+source venv/bin/activate && uvicorn app.main:app --reload --port 7000
+# Windows:
 .\venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 7000
 
 # Terminal 3 — frontend (must be 5173)

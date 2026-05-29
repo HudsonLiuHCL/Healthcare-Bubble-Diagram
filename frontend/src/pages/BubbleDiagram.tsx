@@ -2,9 +2,9 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { Node, Edge } from '@xyflow/react'
 import {
-  Activity, ArrowLeft, RefreshCw,
-  Layers, LayoutGrid, BarChart2, Loader, CheckCircle,
-  Database, FileDown, Send,
+  Activity, ArrowLeft, RefreshCw, GripHorizontal,
+  BarChart2, Loader, CheckCircle, Sparkles,
+  Database, FileDown, Send, ChevronDown,
 } from 'lucide-react'
 import {
   generateBubble, getBubbles, updateBubble,
@@ -12,7 +12,7 @@ import {
 } from '../api/client'
 import { useProjectStore } from '../store/projectStore'
 import { useAuthStore } from '../store/authStore'
-import RequirementsChat, { type ChatMessage } from '../components/RequirementsChat'
+import { type ChatMessage } from '../components/RequirementsChat'
 import BubbleCanvas from '../components/BubbleCanvas'
 import SiteIntelligencePanel from '../components/SiteIntelligencePanel'
 import { SAMPLE_DIAGRAMS, type SampleDiagram } from '../data/sampleDiagrams'
@@ -44,15 +44,44 @@ export default function BubbleDiagram() {
   const [generating, setGenerating] = useState(false)
   const [refineLoading, setRefineLoading] = useState(false)
   const [saveState, setSaveState] = useState<SaveState>('idle')
-  const [panel, setPanel] = useState<'requirements' | 'program'>('requirements')
   const [showIntel, setShowIntel] = useState(false)
   const [intelStatus, setIntelStatus] = useState<string | null>(null)
   const [intelData, setIntelData] = useState<IntelData | null>(null)
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([])
+  const [chatInput, setChatInput] = useState('')
+
+  // Chat drawer drag state
+  const MIN_CHAT_H = 68
+  const [chatH, setChatH] = useState(68)
+  const [dragging, setDragging] = useState(false)
+  const chatBottomRef = useRef<HTMLDivElement>(null)
 
   const nodesRef = useRef<Node[]>([])
   const edgesRef = useRef<Edge[]>([])
   const canvasRef = useRef<HTMLDivElement>(null)
+
+  // Drag handler — no dependency on chatH; captures startH at mousedown
+  const onHandleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    const startY = e.clientY
+    // Read current height from the DOM to avoid stale closure
+    const panel = (e.currentTarget as HTMLElement).closest('[data-chat-panel]') as HTMLElement
+    const startH = panel ? panel.offsetHeight : 68
+    setDragging(true)
+
+    const onMove = (ev: MouseEvent) => {
+      const maxH = Math.floor(window.innerHeight * 0.82)
+      const delta = startY - ev.clientY
+      setChatH(prev => Math.max(MIN_CHAT_H, Math.min(maxH, startH + delta)))
+    }
+    const onUp = () => {
+      setDragging(false)
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [])
 
   // Load project + existing bubbles
   useEffect(() => {
@@ -64,7 +93,7 @@ export default function BubbleDiagram() {
         setActiveBubble(b)
         nodesRef.current = b.nodes || []
         edgesRef.current = b.edges || []
-        setPanel('program')
+        setChatH(280)
         setChatHistory([
           { role: 'user', text: b.requirements_text || 'Loaded existing diagram' },
           {
@@ -108,7 +137,7 @@ export default function BubbleDiagram() {
     setActiveBubble(fakeBubble)
     nodesRef.current = fakeBubble.nodes
     edgesRef.current = fakeBubble.edges
-    setPanel('program')
+    setChatH(280)
     setSaveState('idle')
     setChatHistory([
       { role: 'user', text: `Sample: ${diagram.title}` },
@@ -128,7 +157,7 @@ export default function BubbleDiagram() {
       setActiveBubble(bubble)
       nodesRef.current = bubble.nodes || []
       edgesRef.current = bubble.edges || []
-      setPanel('program')
+      setChatH(280)
       setSaveState('idle')
       setChatHistory([
         { role: 'user', text },
@@ -180,7 +209,26 @@ export default function BubbleDiagram() {
     setActiveBubble(null)
     setChatHistory([])
     setSaveState('idle')
-    setPanel('requirements')
+    setChatH(64)
+  }
+
+  // Unified chat send — generates if no diagram, refines if one exists
+  const handleChatSend = async () => {
+    const text = chatInput.trim()
+    if (!text || generating || refineLoading) return
+    setChatInput('')
+    if (!activeBubble) {
+      await handleGenerate(text)
+    } else {
+      await handleRefine(text)
+    }
+    // Auto-expand chat to show response
+    setChatH(h => Math.max(h, 320))
+    setTimeout(() => chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
+  }
+
+  const handleChatKey = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleChatSend()
   }
 
   // Save current diagram to project database, then auto-download PDF
@@ -237,12 +285,6 @@ export default function BubbleDiagram() {
     }
   }
 
-  const departments = activeBubble?.program_data?.departments || []
-  const totalArea = activeBubble?.program_data?.total_area_sqm
-  const totalBeds = activeBubble?.program_data?.total_beds
-  const summary = activeBubble?.program_data?.summary
-  const isSample = activeBubble?.id?.startsWith('sample-')
-
   // Publish this project to the Revit handoff store (needs a Google sign-in).
   async function handlePublish() {
     if (!projectId || !idToken) return
@@ -257,6 +299,12 @@ export default function BubbleDiagram() {
       setTimeout(() => setPublishState('idle'), 3000)
     }
   }
+
+  const isLoading = generating || refineLoading
+  const isSample = activeBubble?.id?.startsWith('sample-')
+  const departments = activeBubble?.program_data?.departments || []
+  const totalArea = activeBubble?.program_data?.total_area_sqm
+  const totalBeds = activeBubble?.program_data?.total_beds
 
   return (
     <div className="h-screen flex flex-col bg-surface">
@@ -362,100 +410,37 @@ export default function BubbleDiagram() {
         </div>
       </header>
 
-      <div className="flex-1 flex overflow-hidden">
-        {/* Left panel */}
-        <div className="w-72 flex-none border-r border-border flex flex-col bg-panel overflow-hidden">
-          {/* Tabs — only show when a diagram is active */}
-          {activeBubble && (
-            <div className="flex border-b border-border flex-none">
-              <button
-                onClick={() => setPanel('requirements')}
-                className={`flex-1 flex items-center justify-center gap-1.5 py-3 text-xs font-medium transition-colors ${panel === 'requirements' ? 'text-white border-b-2 border-accent' : 'text-muted hover:text-white'}`}
-              >
-                <Layers size={13} />
-                Chat
-              </button>
-              <button
-                onClick={() => setPanel('program')}
-                className={`flex-1 flex items-center justify-center gap-1.5 py-3 text-xs font-medium transition-colors ${panel === 'program' ? 'text-white border-b-2 border-accent' : 'text-muted hover:text-white'}`}
-              >
-                <LayoutGrid size={13} />
-                Program
-              </button>
-            </div>
-          )}
+      {/* Body: canvas + chat drawer */}
+      <div className="flex-1 flex flex-col overflow-hidden">
 
-          {/* Panel content */}
-          {panel === 'requirements' || !activeBubble ? (
-            <div className="flex-1 overflow-hidden">
-              <RequirementsChat
-                onGenerate={handleGenerate}
-                onLoadSample={handleLoadSample}
-                loading={generating}
-                chatHistory={chatHistory}
-                onRefine={handleRefine}
-                refineLoading={refineLoading}
-                onStartOver={handleStartOver}
-                isSample={!!isSample}
-              />
-            </div>
-          ) : (
-            <div className="flex-1 overflow-y-auto">
-              {/* Program stats */}
-              <div className="px-4 py-4 border-b border-border grid grid-cols-2 gap-2">
-                <div className="bg-surface rounded-lg px-3 py-2.5">
-                  <div className="text-lg font-bold text-white">{totalArea?.toLocaleString() || '—'}</div>
-                  <div className="text-xs text-muted">Total m²</div>
-                </div>
-                <div className="bg-surface rounded-lg px-3 py-2.5">
-                  <div className="text-lg font-bold text-white">{totalBeds || '—'}</div>
-                  <div className="text-xs text-muted">Beds</div>
-                </div>
-              </div>
-
-              {summary && (
-                <div className="px-4 py-3 border-b border-border">
-                  <p className="text-xs text-muted leading-relaxed">{summary}</p>
-                </div>
-              )}
-
-              {/* Department list */}
-              <div className="px-4 py-3">
-                <p className="text-xs font-medium text-muted uppercase tracking-wider mb-3">
-                  Departments ({departments.length})
-                </p>
-                <div className="space-y-1.5">
-                  {departments.map(dept => (
-                    <div key={dept.id} className="flex items-center gap-3 py-1.5">
-                      <div className="w-3 h-3 rounded-full flex-none" style={{ backgroundColor: dept.color }} />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-xs text-white font-medium truncate">{dept.name}</div>
-                        <div className="text-xs text-muted">
-                          {dept.area_sqm.toLocaleString()} m²
-                          {dept.beds ? ` · ${dept.beds} beds` : ''}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Canvas */}
-        <div className="flex-1 relative">
+        {/* ── Canvas (full width, shrinks as chat expands) ── */}
+        <div className="flex-1 relative overflow-hidden">
+          {/* Empty state */}
           {!activeBubble && !generating && (
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-6 pointer-events-none">
               <div className="text-center">
-                <div className="w-16 h-16 rounded-2xl bg-purple-500/20 flex items-center justify-center mx-auto mb-4">
-                  <Layers size={28} className="text-purple-400" />
+                <div className="w-16 h-16 rounded-2xl bg-accent/15 flex items-center justify-center mx-auto mb-4">
+                  <Sparkles size={28} className="text-accent" />
                 </div>
-                <p className="text-white font-medium mb-1">Select a sample or enter requirements</p>
-                <p className="text-muted text-sm">Choose a pre-built diagram or describe your facility</p>
+                <p className="text-white font-medium mb-1">Describe your facility below</p>
+                <p className="text-muted text-sm">Type requirements in the chat bar — AI will generate your bubble diagram</p>
+              </div>
+              {/* Sample quick-picks */}
+              <div className="flex gap-2 flex-wrap justify-center pointer-events-auto">
+                {SAMPLE_DIAGRAMS.slice(0, 3).map(d => (
+                  <button
+                    key={d.id}
+                    onClick={() => handleLoadSample(d)}
+                    className="px-3 py-1.5 text-xs rounded-lg border border-border bg-panel text-muted hover:text-white hover:border-accent/40 transition-all"
+                  >
+                    {d.title}
+                  </button>
+                ))}
               </div>
             </div>
           )}
+
+          {/* Generating spinner */}
           {generating && (
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="text-center">
@@ -465,6 +450,8 @@ export default function BubbleDiagram() {
               </div>
             </div>
           )}
+
+          {/* Bubble canvas */}
           {activeBubble && !generating && (
             <div ref={canvasRef} className="absolute inset-0">
               <BubbleCanvas
@@ -477,18 +464,18 @@ export default function BubbleDiagram() {
             </div>
           )}
 
-          {/* Refine loading overlay */}
+          {/* Refine overlay */}
           {refineLoading && (
             <div className="absolute inset-0 bg-black/40 flex items-center justify-center z-10">
               <div className="bg-surface border border-border rounded-2xl px-6 py-5 text-center shadow-2xl">
                 <div className="w-10 h-10 rounded-full border-4 border-accent/20 border-t-accent animate-spin mx-auto mb-3" />
-                <p className="text-white text-sm font-medium">Refining diagram…</p>
-                <p className="text-muted text-xs mt-1">AI is applying your changes</p>
+                <p className="text-white text-sm font-medium">AI is updating your diagram…</p>
+                <p className="text-muted text-xs mt-1">Bubble diagram + stacking will both refresh</p>
               </div>
             </div>
           )}
 
-          {/* Intelligence status overlay chip */}
+          {/* Site intel chip */}
           {intelStatus && (
             <div
               className={`absolute top-4 left-4 flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-medium cursor-pointer transition-all shadow-lg ${
@@ -501,7 +488,7 @@ export default function BubbleDiagram() {
               onClick={() => intelStatus === 'completed' && setShowIntel(true)}
             >
               {intelStatus === 'completed' ? (
-                <><CheckCircle size={13} /> Site Intelligence Ready — click to view</>
+                <><CheckCircle size={13} /> Site Intelligence Ready</>
               ) : intelStatus === 'failed' ? (
                 <>⚠ Site analysis incomplete</>
               ) : (
@@ -509,6 +496,121 @@ export default function BubbleDiagram() {
               )}
             </div>
           )}
+
+          {/* Stats pill (top-right of canvas) */}
+          {activeBubble && (totalArea || totalBeds) && (
+            <div className="absolute top-4 right-4 flex items-center gap-3 px-3 py-2 rounded-xl bg-surface/80 border border-border/60 backdrop-blur-sm text-xs text-muted">
+              {totalArea && <span><span className="text-white font-semibold">{totalArea.toLocaleString()}</span> m²</span>}
+              {totalBeds && <span><span className="text-white font-semibold">{totalBeds}</span> beds</span>}
+              {departments.length > 0 && <span><span className="text-white font-semibold">{departments.length}</span> depts</span>}
+            </div>
+          )}
+        </div>
+
+        {/* ── AI Chat Drawer ── */}
+        <div
+          data-chat-panel
+          style={{ height: chatH, minHeight: MIN_CHAT_H }}
+          className="flex-none flex flex-col bg-panel overflow-hidden"
+        >
+          {/* Drag handle — full-width resize bar */}
+          <div
+            onMouseDown={onHandleMouseDown}
+            className={`flex-none h-8 flex flex-col items-center justify-center gap-1 cursor-row-resize select-none border-t-2 transition-colors ${
+              dragging
+                ? 'border-accent bg-accent/10'
+                : 'border-border hover:border-accent/50 hover:bg-white/4'
+            }`}
+          >
+            <div className={`w-10 h-0.5 rounded-full transition-colors ${dragging ? 'bg-accent' : 'bg-border group-hover:bg-muted/60'}`} />
+            <div className={`w-6 h-0.5 rounded-full transition-colors ${dragging ? 'bg-accent/60' : 'bg-border/60'}`} />
+          </div>
+
+          {/* Message history — visible when tall enough */}
+          {chatH > 140 && (
+            <div className="flex-1 overflow-y-auto px-4 py-2 space-y-3 min-h-0">
+              {chatHistory.length === 0 && (
+                <div className="flex flex-col items-center justify-center h-full gap-2 text-center">
+                  <Sparkles size={18} className="text-accent/50" />
+                  <p className="text-xs text-muted">Ask AI to generate or modify your diagrams</p>
+                  <p className="text-xs text-muted/60">Changes apply to both bubble diagram and stacking diagram</p>
+                </div>
+              )}
+              {chatHistory.map((msg, i) => (
+                <div key={i} className={`flex gap-2.5 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  {msg.role === 'ai' && (
+                    <div className="w-6 h-6 rounded-full bg-accent/20 border border-accent/30 flex items-center justify-center flex-none mt-0.5">
+                      <Sparkles size={10} className="text-accent" />
+                    </div>
+                  )}
+                  <div className={`max-w-[72%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed ${
+                    msg.role === 'user'
+                      ? 'bg-accent/20 border border-accent/30 text-white rounded-br-sm'
+                      : 'bg-surface border border-border text-slate-300 rounded-bl-sm'
+                  }`}>
+                    {msg.text}
+                  </div>
+                </div>
+              ))}
+              {isLoading && (
+                <div className="flex gap-2.5 justify-start">
+                  <div className="w-6 h-6 rounded-full bg-accent/20 border border-accent/30 flex items-center justify-center flex-none">
+                    <Sparkles size={10} className="text-accent" />
+                  </div>
+                  <div className="bg-surface border border-border rounded-2xl rounded-bl-sm px-3.5 py-2.5 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-accent/60 animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <span className="w-1.5 h-1.5 rounded-full bg-accent/60 animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <span className="w-1.5 h-1.5 rounded-full bg-accent/60 animate-bounce" style={{ animationDelay: '300ms' }} />
+                  </div>
+                </div>
+              )}
+              <div ref={chatBottomRef} />
+            </div>
+          )}
+
+          {/* Input row */}
+          <div className="flex-none px-4 pb-3 pt-1 flex items-end gap-2">
+            {isSample && (
+              <div className="flex-1 text-xs text-yellow-400/80 bg-yellow-500/10 border border-yellow-500/20 rounded-xl px-3 py-2">
+                Save diagram first to enable AI refinement
+              </div>
+            )}
+            {!isSample && (
+              <textarea
+                value={chatInput}
+                onChange={e => setChatInput(e.target.value)}
+                onKeyDown={handleChatKey}
+                onFocus={() => { if (chatH < 200) setChatH(280) }}
+                placeholder={
+                  activeBubble
+                    ? 'Ask AI to adjust rooms, add a department, change the stacking… (⌘↵ to send)'
+                    : 'Describe your healthcare facility — departments, bed count, workflows… (⌘↵ to send)'
+                }
+                rows={1}
+                style={{ resize: 'none', minHeight: 36, maxHeight: 120 }}
+                className="flex-1 bg-surface border border-border rounded-xl px-3 py-2 text-xs text-white placeholder-muted focus:outline-none focus:border-accent leading-relaxed overflow-y-auto"
+              />
+            )}
+            <button
+              onClick={handleChatSend}
+              disabled={isLoading || !chatInput.trim() || !!isSample}
+              className="flex-none w-9 h-9 rounded-xl bg-accent hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed text-white flex items-center justify-center transition-colors"
+            >
+              {isLoading
+                ? <Loader size={14} className="animate-spin" />
+                : <Send size={14} />
+              }
+            </button>
+            {chatH > MIN_CHAT_H + 10 && (
+              <button
+                onClick={() => setChatH(MIN_CHAT_H)}
+                title="Collapse chat"
+                className="flex-none w-9 h-9 rounded-xl border border-border text-muted hover:text-white hover:border-accent/30 flex items-center justify-center transition-colors"
+              >
+                <ChevronDown size={14} />
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
